@@ -20,6 +20,8 @@
 #include "esphome/components/number/number.h"
 #include "esphome/core/log.h"
 
+#include <esp_gap_ble_api.h>
+
 #include <string>
 
 #include <vector>
@@ -228,6 +230,7 @@ class CulliganWaterSoftener : public esphome::ble_client::BLEClientNode,
   void loop() override;
   void gattc_event_handler(esp_gattc_cb_event_t event, esp_gatt_if_t gattc_if,
                           esp_ble_gattc_cb_param_t *param) override;
+  void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) override;
 
   // ESPBTDeviceListener interface for auto-discovery
   bool parse_device(const esp32_ble_tracker::ESPBTDevice &device) override;
@@ -250,6 +253,9 @@ class CulliganWaterSoftener : public esphome::ble_client::BLEClientNode,
   void set_total_gallons_sensor(sensor::Sensor *sensor) { total_gallons_sensor_ = sensor; }
   void set_total_regens_sensor(sensor::Sensor *sensor) { total_regens_sensor_ = sensor; }
   void set_battery_level_sensor(sensor::Sensor *sensor) { battery_level_sensor_ = sensor; }
+  // Live BLE connection RSSI - distinct from the one-shot advertisement RSSI
+  // seen during discovery, which is unavailable once connected (see gap_event_handler)
+  void set_ble_signal_strength_sensor(sensor::Sensor *sensor) { ble_signal_strength_sensor_ = sensor; }
 
   // New sensor setters for Phase 3
   void set_reserve_capacity_sensor(sensor::Sensor *sensor) { reserve_capacity_sensor_ = sensor; }
@@ -402,6 +408,7 @@ class CulliganWaterSoftener : public esphome::ble_client::BLEClientNode,
   uint16_t password_{DEFAULT_PASSWORD};
   uint32_t poll_interval_ms_{60000};  // Default 60 seconds
   uint32_t last_poll_time_{0};
+  uint32_t last_rssi_request_time_{0};
   uint32_t last_keepalive_time_{0};
   uint32_t keepalive_interval_ms_{4000};  // Send keepalive every 4 seconds
 
@@ -423,6 +430,7 @@ class CulliganWaterSoftener : public esphome::ble_client::BLEClientNode,
   sensor::Sensor *total_gallons_sensor_{nullptr};
   sensor::Sensor *total_regens_sensor_{nullptr};
   sensor::Sensor *battery_level_sensor_{nullptr};
+  sensor::Sensor *ble_signal_strength_sensor_{nullptr};
 
   // New sensors for Phase 3
   sensor::Sensor *reserve_capacity_sensor_{nullptr};

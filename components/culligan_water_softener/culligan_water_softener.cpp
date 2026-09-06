@@ -12,6 +12,7 @@
 #ifdef USE_ESP32
 
 #include <esp_random.h>
+#include <cstring>
 #include <ctime>
 
 namespace esphome {
@@ -124,6 +125,16 @@ void CulliganWaterSoftener::loop() {
     this->request_data();
   }
 
+  // Periodic BLE connection RSSI read (at poll_interval). Only meaningful while
+  // actually connected - the softener stops advertising once connected, so this
+  // reads the live GATT link's signal strength rather than a discovery broadcast.
+  // Result arrives asynchronously via gap_event_handler().
+  if (this->ble_signal_strength_sensor_ != nullptr && this->authenticated_ &&
+      (now - this->last_rssi_request_time_ >= this->poll_interval_ms_)) {
+    this->last_rssi_request_time_ = now;
+    esp_ble_gap_read_rssi(this->ble_client::BLEClientNode::parent_->get_remote_bda());
+  }
+
   // Reset request state after done
   if (this->request_state_ == REQ_DONE && (now - this->request_time_ >= 100)) {
     this->request_state_ = REQ_IDLE;
@@ -150,6 +161,7 @@ void CulliganWaterSoftener::dump_config() {
   LOG_SENSOR("  ", "Total Gallons", this->total_gallons_sensor_);
   LOG_SENSOR("  ", "Total Regens", this->total_regens_sensor_);
   LOG_SENSOR("  ", "Battery Level", this->battery_level_sensor_);
+  LOG_SENSOR("  ", "BLE Signal Strength", this->ble_signal_strength_sensor_);
   LOG_SENSOR("  ", "Reserve Capacity", this->reserve_capacity_sensor_);
   LOG_SENSOR("  ", "Resin Capacity", this->resin_capacity_sensor_);
   LOG_BINARY_SENSOR("  ", "Display Off", this->display_off_sensor_);
@@ -238,6 +250,28 @@ void CulliganWaterSoftener::gattc_event_handler(esp_gattc_cb_event_t event, esp_
     default:
       break;
   }
+}
+
+void CulliganWaterSoftener::gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param) {
+  if (event != ESP_GAP_BLE_READ_RSSI_COMPLETE_EVT)
+    return;
+
+  if (this->ble_signal_strength_sensor_ == nullptr)
+    return;
+
+  // Multiple BLE clients can share the stack's GAP callback - confirm this
+  // completion is for our own peer before publishing it.
+  const uint8_t *our_bda = this->ble_client::BLEClientNode::parent_->get_remote_bda();
+  if (memcmp(param->read_rssi_cmpl.remote_addr, our_bda, sizeof(esp_bd_addr_t)) != 0)
+    return;
+
+  if (param->read_rssi_cmpl.status != ESP_BT_STATUS_SUCCESS) {
+    ESP_LOGW(TAG, "RSSI read failed, status=%d", param->read_rssi_cmpl.status);
+    return;
+  }
+
+  ESP_LOGD(TAG, "BLE connection RSSI: %d dBm", param->read_rssi_cmpl.rssi);
+  this->ble_signal_strength_sensor_->publish_state(param->read_rssi_cmpl.rssi);
 }
 
 // Ring buffer append - optimized for BLE notification sizes

@@ -5,10 +5,13 @@ from esphome.components import sensor
 from esphome.const import (
     CONF_ID,
     UNIT_PERCENT,
+    UNIT_DECIBEL_MILLIWATT,
     DEVICE_CLASS_BATTERY,
     DEVICE_CLASS_WATER,
+    DEVICE_CLASS_SIGNAL_STRENGTH,
     STATE_CLASS_MEASUREMENT,
     STATE_CLASS_TOTAL_INCREASING,
+    ENTITY_CATEGORY_DIAGNOSTIC,
 )
 from . import (
     CulliganWaterSoftener,
@@ -45,6 +48,7 @@ CONF_DAYS_UNTIL_REGEN = "days_until_regen"
 CONF_TOTAL_GALLONS = "total_gallons"
 CONF_TOTAL_REGENS = "total_regenerations"
 CONF_BATTERY_LEVEL = "battery_level"
+CONF_BLE_SIGNAL_STRENGTH = "ble_signal_strength"
 
 # New sensors for Phase 3
 CONF_RESERVE_CAPACITY = "reserve_capacity"
@@ -145,6 +149,19 @@ CONFIG_SCHEMA = cv.Schema(
             accuracy_decimals=0,
             device_class=DEVICE_CLASS_BATTERY,
             state_class=STATE_CLASS_MEASUREMENT,
+        ),
+        # Live BLE connection RSSI, read periodically at poll_interval while
+        # connected. Distinct from esp32_ble_tracker's ble_rssi platform, which
+        # only sees the device's advertisement RSSI - unavailable once
+        # connected, since most single-link peripherals (this one included)
+        # stop advertising as soon as a central connects.
+        cv.Optional(CONF_BLE_SIGNAL_STRENGTH): sensor.sensor_schema(
+            unit_of_measurement=UNIT_DECIBEL_MILLIWATT,
+            accuracy_decimals=0,
+            device_class=DEVICE_CLASS_SIGNAL_STRENGTH,
+            state_class=STATE_CLASS_MEASUREMENT,
+            entity_category=ENTITY_CATEGORY_DIAGNOSTIC,
+            icon="mdi:bluetooth",
         ),
         # New sensors for Phase 3
         cv.Optional(CONF_RESERVE_CAPACITY): sensor.sensor_schema(
@@ -336,6 +353,10 @@ async def to_code(config):
     if CONF_BATTERY_LEVEL in config:
         sens = await sensor.new_sensor(config[CONF_BATTERY_LEVEL])
         cg.add(parent.set_battery_level_sensor(sens))
+
+    if CONF_BLE_SIGNAL_STRENGTH in config:
+        sens = await sensor.new_sensor(config[CONF_BLE_SIGNAL_STRENGTH])
+        cg.add(parent.set_ble_signal_strength_sensor(sens))
 
     # New sensors for Phase 3
     if CONF_RESERVE_CAPACITY in config:
