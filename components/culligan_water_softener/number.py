@@ -63,7 +63,6 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_REGEN_TIME_HOUR): number.number_schema(
             RegenTimeHourNumber,
-            unit_of_measurement=UNIT_HOURS,
             icon="mdi:clock",
         ),
         cv.Optional(CONF_RESERVE_CAPACITY): number.number_schema(
@@ -112,7 +111,6 @@ CONFIG_SCHEMA = cv.Schema(
         ),
         cv.Optional(CONF_LOW_SALT_ALERT): number.number_schema(
             LowSaltAlertNumber,
-            unit_of_measurement=UNIT_PERCENT,
             icon="mdi:alert",
         ),
         cv.Optional(CONF_BRINE_TANK_TYPE): number.number_schema(

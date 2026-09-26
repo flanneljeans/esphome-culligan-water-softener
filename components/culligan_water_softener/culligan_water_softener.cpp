@@ -421,7 +421,8 @@ void CulliganWaterSoftener::parse_handshake() {
   this->auth_required_ = (this->firmware_major_ < 6) || ((auth_flag & AUTH_REQUIRED_FLAG) != 0);
 
   char fw_version[16];
-  snprintf(fw_version, sizeof(fw_version), "C%d.%d", this->firmware_major_, this->firmware_minor_);
+  // Minor version is BCD (0x40 -> "40"), so print it as hex, not decimal
+  snprintf(fw_version, sizeof(fw_version), "C%d.%02X", this->firmware_major_, this->firmware_minor_);
 
   ESP_LOGI(TAG, "Handshake received, firmware: %s, auth flag: 0x%02X, counter: %d, already_auth: %s",
            fw_version, auth_flag, this->connection_counter_, this->authenticated_ ? "yes" : "no");
@@ -924,14 +925,21 @@ void CulliganWaterSoftener::parse_statistics_packet() {
     // Offset 15: Regen active flag
     // Offset 18: End marker 'F' (0x46)
 
-    // Validate end marker
-    uint8_t end_marker = this->buffer_peek(18);
-    if (end_marker != END_MARKER_WW_0) {
-      ESP_LOGW(TAG, "Invalid ww-0 end marker: 0x%02X (expected 0x%02X), rejecting packet",
-               end_marker, END_MARKER_WW_0);
-      this->buffer_consume(19);
-      this->buffer_clear();
-      return;
+    // Validate end marker. Some firmware sends ww-0 as 19 bytes (marker at
+    // byte 18), others as 20 bytes (marker at byte 19, per PROTOCOL.md).
+    size_t ww0_len = 19;
+    if (this->buffer_peek(18) != END_MARKER_WW_0) {
+      if (this->buffer_size() < 20) {
+        return;  // Might be the 20-byte form; wait for the last byte
+      }
+      if (this->buffer_peek(19) != END_MARKER_WW_0) {
+        ESP_LOGW(TAG, "Invalid ww-0 end marker: byte18=0x%02X byte19=0x%02X (expected 0x%02X), rejecting packet",
+                 this->buffer_peek(18), this->buffer_peek(19), END_MARKER_WW_0);
+        this->buffer_consume(20);
+        this->buffer_clear();
+        return;
+      }
+      ww0_len = 20;
     }
 
     // Current flow (validate)
@@ -975,8 +983,8 @@ void CulliganWaterSoftener::parse_statistics_packet() {
     ESP_LOGI(TAG, "Parsed ww-0: Flow=%.2f GPM, Total gallons=%lu (resettable=%lu), Total regens=%d (resettable=%d)",
              current_flow, total_gallons, total_gallons_resettable, total_regens, total_regens_resettable);
 
-    // Remove ww-0 (19 bytes)
-    this->buffer_consume(19);
+    // Remove ww-0 (19 or 20 bytes)
+    this->buffer_consume(ww0_len);
   } else if (packet_num == 1) {
     // ww-1: Start of daily usage history data (20 bytes)
     // Bytes 3-19 contain first 17 daily usage values
@@ -1459,7 +1467,11 @@ float CulliganWaterSoftener::calculate_salt_remaining() {
 
   // Sanity check: salt level can't exceed tank capacity
   // If it does, we likely have corrupt data - return last valid value
-  if (salt_remaining > max_capacity * 1.1f) {  // Allow 10% tolerance
+  // Skip the check when the tank size isn't one of the four known sizes: the
+  // multiplier then falls back to 16" and would reject every real reading.
+  bool known_tank = this->brine_tank_type_ == 16 || this->brine_tank_type_ == 18 ||
+                    this->brine_tank_type_ == 24 || this->brine_tank_type_ == 30;
+  if (known_tank && salt_remaining > max_capacity * 1.1f) {  // Allow 10% tolerance
     ESP_LOGW(TAG, "Ignoring corrupt salt level: %.1f lbs (max capacity: %.1f lbs, regens=%d)",
              salt_remaining, max_capacity, this->brine_regens_remaining_);
     return this->last_valid_salt_level_;
