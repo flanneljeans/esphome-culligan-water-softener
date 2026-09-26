@@ -42,6 +42,8 @@ static const uint8_t END_MARKER_UU_1 = 0x3A;  // ':'
 static const uint8_t END_MARKER_VV_0 = 0x42;  // 'B'
 static const uint8_t END_MARKER_VV_1 = 0x43;  // 'C'
 static const uint8_t END_MARKER_WW_0 = 0x46;  // 'F'
+// Gap between the u / v / w data requests, so each reply arrives before the next
+static const uint32_t REQUEST_SPACING_MS = 1500;
 
 // Authentication constants
 static const uint8_t AUTH_REQUIRED_FLAG = 0x80;
