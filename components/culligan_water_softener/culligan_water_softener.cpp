@@ -895,21 +895,35 @@ void CulliganWaterSoftener::parse_statistics_packet() {
     // Offset 15: Regen active flag
     // Offset 18: End marker 'F' (0x46)
 
-    // Validate end marker. Some firmware sends ww-0 as 19 bytes (marker at
-    // byte 18), others as 20 bytes (marker at byte 19, per PROTOCOL.md).
+    // Validate the packet boundary. PROTOCOL.md shows ww-0 ending in 'F' at
+    // byte 19, but firmware C4.40 sends a 19-byte ww-0 whose last byte is
+    // data (e.g. 0x43), immediately followed by the ww-1 header. Accept:
+    //   - 'F' at byte 18 (19-byte form with marker), or
+    //   - 'F' at byte 19 (20-byte form), or
+    //   - a 19-byte packet followed directly by another packet header.
     size_t ww0_len = 19;
+    char ww0_hex[3 * 20 + 1];
+    for (size_t i = 0; i < 20 && i < this->buffer_size(); i++) {
+      snprintf(ww0_hex + 3 * i, 4, "%02X ", this->buffer_peek(i));
+    }
+    ESP_LOGD(TAG, "ww-0 raw: %s", ww0_hex);
     if (this->buffer_peek(18) != END_MARKER_WW_0) {
       if (this->buffer_size() < 20) {
-        return;  // Might be the 20-byte form; wait for the last byte
+        return;  // Need one more byte to see what follows
       }
-      if (this->buffer_peek(19) != END_MARKER_WW_0) {
-        ESP_LOGW(TAG, "Invalid ww-0 end marker: byte18=0x%02X byte19=0x%02X (expected 0x%02X), rejecting packet",
-                 this->buffer_peek(18), this->buffer_peek(19), END_MARKER_WW_0);
-        this->buffer_consume(20);
-        this->buffer_clear();
-        return;
+      uint8_t next = this->buffer_peek(19);
+      bool header_follows = next >= 0x74 && next <= 0x78 && this->buffer_size() >= 21 &&
+                            this->buffer_peek(20) == next;
+      if (next == END_MARKER_WW_0) {
+        ww0_len = 20;
+      } else if (this->buffer_size() < 21) {
+        return;  // Need the second header byte too
+      } else if (!header_follows) {
+        ESP_LOGW(TAG, "Invalid ww-0 boundary: byte18=0x%02X byte19=0x%02X, rejecting packet",
+                 this->buffer_peek(18), next);
+        this->buffer_consume(19);
+        return;  // Don't clear: the next packet may still be intact
       }
-      ww0_len = 20;
     }
 
     // Current flow (validate)
