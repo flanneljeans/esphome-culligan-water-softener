@@ -89,9 +89,13 @@ void CulliganWaterSoftener::loop() {
     this->send_keepalive();
   }
 
-  // Non-blocking request state machine (20ms between commands)
+  // Non-blocking request state machine. The replies to u, v and w share one
+  // receive buffer, and uu-2 clears that buffer to drop the headerless uu-3..5
+  // continuations. With 20ms between commands the vv/ww replies were already
+  // queued behind uu and got cleared or misaligned (ww-0 never parsed; vv
+  // values landed in the wrong fields). Give each reply time to finish first.
   if (this->request_state_ != REQ_IDLE && this->request_state_ != REQ_DONE) {
-    if (now - this->request_time_ >= 20) {
+    if (now - this->request_time_ >= REQUEST_SPACING_MS) {
       this->request_time_ = now;
       uint8_t cmd[20];
 
@@ -1182,7 +1186,7 @@ void CulliganWaterSoftener::request_data() {
   // Start non-blocking request state machine
   // The actual requests are sent in loop() with 20ms spacing
   this->request_state_ = REQ_STATUS;
-  this->request_time_ = millis() - 20;  // Trigger immediate first request
+  this->request_time_ = millis() - REQUEST_SPACING_MS;  // Trigger immediate first request
 }
 
 void CulliganWaterSoftener::send_regen_now() {
